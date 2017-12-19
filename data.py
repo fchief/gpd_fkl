@@ -23,7 +23,8 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 
 # Global data for processing use
 dataset = {'Sales_Transactions_Dataset_Weekly.csv': 'https://www.kaggle.com/crawford/weekly-sales-transactions/downloads/Sales_Transactions_Dataset_Weekly.csv', 
-            'data_job_posts.zip': 'https://www.kaggle.com/madhab/jobposts/downloads/data%20job%20posts.csv'}
+            'data_job_posts.zip': 'https://www.kaggle.com/madhab/jobposts/downloads/data%20job%20posts.csv',
+            "test.csv":"https://www.kaggle.com/rishisankineni/text-similarity/downloads/test.csv"}
 fields = ["TITLE:", "TERM:",  "DURATION:", "LOCATION:", 
     "JOB DESCRIPTION:", "RESPONSIBILITIES:", "QUALIFICATIONS:",
     "SALARY:", "REMUNERATION:", "DEADLINE:", "COMPANY:"]
@@ -35,9 +36,9 @@ clean_fields = ["TITLE:",  "DURATION:", "LOCATION:",
 # To parallelize this function one can split dataframe into partitions and call this function
 # concurrently. The python library commonly used is multiprocess. 
 def text_sim(df):
-    input=[df["description_x"], df["description_y"]]
-    # Cosine similarity is used here. Alternatively, we could use Jaccard or 
-    # Jaro Winkler which calculates the percentage of matched characters.
+    input = [df["description_x"], df["description_y"]]
+    # Cosine similarity calculates the angle of two vectors of words. Alternatively, 
+    # we could also use Jaccard or Jaro Winkler which calculates the percentage of matched characters.
     tfidf = TfidfVectorizer(min_df=1)
     fit = tfidf.fit_transform(input)
     sim = (fit * fit.T).A
@@ -334,29 +335,31 @@ if __name__ == '__main__':
     # Question 1
     input = [1,2,3,4] # You may change the list entries here. No numeric checking
     val = sum_exc(input)
-    print("Q1 - Input list: {0} Index exclusion sum: {1}".format(input, val))
+    print("------------------------- Q1 - Reverse sum")
+    print("Index exclusion sum of {0}: {1}".format(input, val))
 
     # Question 2
-    print("Q2 - Running. This may take a while ..")
+    print("\n------------------------- Q2 - Running. This may take a while ...")
     results = sale_analysis()
     print("Best performing: ")
     print(results["Best Performing"])
-    print("Outliers for product P10: ")
-    print(results["Outliers"]["P10"])
-    print("Statistics for product P10: ")
-    print(results["Statistics"]["P10"])
-    print("Biweekly worst for BW2: ")
+    print("Outliers for product P8: ")
+    print(results["Outliers"]["P8"])
+    print("Statistics for product P8: ")
+    print(results["Statistics"]["P8"])
+    print("Biweekly worst for BW1 (W0+W1): ")
     print(results["Biweekly Worst"]["BW1"])
     print("Emerging products: ")
     print(results["Emerging Product"])
 
     # Question 3
-    print("\nQ3 - Running. This may take a while ..\n")
-    # jobpost_eda()
+    print("\n-------------------------Q3 - Running. This may take a while ..\n")
+    jobpost_eda()
 
     # Question 4
     q4file = "test.csv"
     df = pd.read_csv(q4file)
     df["same_security"] = df.loc[:,["description_x", "description_y"]].apply(text_sim, axis=1)
-    print("Q4 - First 6 rows\n")
+    print("------------------------- Q4 - First 6 rows")
+    print(" Similarity scores range between 0 to 1 with 1 means exactly identical\n")
     print(df.iloc[:6,1:])
