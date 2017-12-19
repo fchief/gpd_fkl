@@ -4,9 +4,21 @@ import csv
 import numpy as np
 import pandas as pd
 import requests
-from nltk.corpus import stopwords
-from nltk import PorterStemmer
 import zipfile
+from string import punctuation
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+from nltk import PorterStemmer, pos_tag
+from pattern.en import singularize
+from scipy import stats
+
+
+# ------------------------------------------------------------------------------------------
+# Download stopwords list if not available
+# import nltk
+# nltk.download("stopwords")
+# nltk.download("punkt")
+# nltk.download("averaged_perceptron_tagger")
 
 # Global data for processing use
 dataset = {'Sales_Transactions_Dataset_Weekly.csv': 'https://www.kaggle.com/crawford/weekly-sales-transactions/downloads/Sales_Transactions_Dataset_Weekly.csv', 
@@ -18,10 +30,21 @@ clean_fields = ["TITLE:",  "DURATION:", "LOCATION:",
     "JOB DESCRIPTION:", "RESPONSIBILITIES:", "QUALIFICATIONS:",
     "SALARY:", "DEADLINE:", "COMPANY:"]
 
+# ------------------------------------------------------------------------------------------
+# To parallelize this function one can split dataframe into partitions and call this function
+# concurrently. The python library commonly used is multiprocess. 
+def text_sim(df):
+    pass
 
 # ------------------------------------------------------------------------------------------
 # This function takes string input and remove stop words and singularize the words.
 def str_swr_sgl(str_input):
+    ps = PorterStemmer()
+    stop_words = set(stopwords.words("english") + list(punctuation))
+    naked_words = [word for word in word_tokenize(str_input) if word not in stop_words]
+    postag_words = pos_tag(naked_words)
+    raw_words = [singularize(word[0]) for word in postag_words]
+    return (raw_words)
 
 # ------------------------------------------------------------------------------------------
 # This function takes a dataframe as input and outputs total number of job posts
@@ -49,11 +72,19 @@ def jobpost_company(df):
 # This function takes a string input containing job post details and search for job post 
 # details shown in clean_fields list. List containing the results is returned.
 def jobpost_scraper(jobpost_str):
+    # Since the string has a clear structure with upper case letter followed by : for all of
+    # important headers. We can use a simple regex
     regex = r"[A-Z / A-Z]{4,}\:"
     job_post = []
-    matches = re.finditer(regex, jobpost_str)
-    match_items = []
+    df_ls = []
     match_headers = []
+    match_items = []
+    matches = re.finditer(regex, jobpost_str)
+    
+    # Loop through each matches and scrape the string starting from match.end to next match.start
+    # e.g. TERM: Permanent until ..... POSITION:. It will grab the content after first ':' and
+    # to the beginning of next match that is one index before P. Note that in this loop, we also
+    # store all scraped content including those that we don't want like ANNOUNCE CODE:.
     for match in matches:
         h = jobpost_str[match.start():match.end()].strip()
         for f in fields:
@@ -68,7 +99,7 @@ def jobpost_scraper(jobpost_str):
         match_items.append((match.start(), match.end()))
     nn = len(clean_fields)
     mm = len(match_headers)
-    df_ls = []
+    # Here we extract our interested contents based on headers in clean_fields
     for cf in clean_fields:
         if cf in match_headers:
             ii = match_headers.index(cf)
@@ -80,33 +111,38 @@ def jobpost_scraper(jobpost_str):
             else:
                 idx_s = match_items[ii][1]
                 res = jobpost_str[idx_s:].strip()
+            # This part is to skip the disclaimer sentence at the very end of year job post
             idx_ = res.find("--")
             if idx_ != -1:
                 res = res[0:idx_].strip()
             res = res.replace("\r\n", "")
-            # result.at[i, match_headers[ii]] = res
             df_ls.append(res)
         else:
-            # result.at[i, cf] = "NULL"
             df_ls.append("NULL")
     return df_ls
         
 # This function is a caller function to invoke jobpost related eda functions
+# It will take a while to run this function due to heavy text analysis
 def jobpost_eda():
     zf = zipfile.ZipFile("data_job_posts.zip")
     df = pd.read_csv(zf.open("data job posts.csv"))
 
     jobpost_company(df)
     jobpost_month(df)
-    
+    str_swr_sgl(df["JobRequirment"][0])
     n = len(df["jobpost"])
-    # regex = r"[A-Z / A-Z]{4,}\:"
+
+    # ----
     result = pd.DataFrame(columns = clean_fields)
     for i in range(0,n):
         temp = df["jobpost"][i]
-        result.loc[i] = jobpost_scraper(temp)
+        res = jobpost_scraper(temp)
+        res[4] = str_swr_sgl(res[4])
+        result.loc[i] = res
     print("Total {0} job posts scraped.".format(n))
     print(result[:6])
+    # ----
+
     #     job_post = []
     #     matches = re.finditer(regex, temp)
     #     match_items = []
@@ -150,7 +186,37 @@ def jobpost_eda():
     # print("Total {0} job posts scraped.".format(n))
     # print(result[:6])
 
-    
+# ------------------------------------------------------------------------------------------
+# This is a very simple model for fitting a binary classification model using the sign of 
+# the slope. Additional rules can be added to further enhance this model such as if average
+# sales volume is below certain number because emerging also means relatively unknown. Also,
+# due to time contraint I assumed that the dataset fits the linear regression model. One 
+# model that is interesting to test is trending tweets prediction model developed by Nikolov
+# https://snikolov.wordpress.com/2012/11/14/early-detection-of-twitter-trends/
+def is_emerging(x, y):
+    slope, intercept, r_value, p_value, std_err = stats.linregress(x,y)
+    if slope > 0:
+        return True
+    else:
+        return False
+
+# ------------------------------------------------------------------------------------------
+# Most of the answers here can be found readily using DataFrame.describe()
+# This function mainly aims to illustrate how it can be implemented.
+def find_stats(input):
+    max_val = max(input)
+    min_val = min(input)
+    n = len(input)
+    mean_val = sum(input)/float(n)
+    sorted_input = sorted(input)
+    if n%2 == 0:
+        idx1 = n/2
+        idx2 = idx1 + 1
+        median = (sorted_input[idx1] + sorted_input[idx2])/float(2)
+    else:
+        idx = (n+1)/float(2)
+        median = sorted_input[idx]
+    return [min_val, max_val, median, mean_val]
 
 def is_outlier(value, qtr25, qtr75):
     iqr = qtr75 - qtr25
@@ -158,43 +224,70 @@ def is_outlier(value, qtr25, qtr75):
     upper = qtr75 + 1.5*iqr
     return (value < lower) or (value > upper)
 
+# This function is not used extensively but can be used to ignore non numeric values for summing
 def audit_sum(input):
     total = []
     [total.append(int(i)) for i in input if i.isdigit()]
     return sum(total)
 
+# ------------------------------------------------------------------------------------------
+# All the questions answered in this function can be answered easily using pandas dataframe.
+# Certain question is answered using DataFrame
+# returning results as
+# Dict - {
+#  'Best Performing' : (product, total sales),
+#  'Outliers' : {'P1' : [...], ...},
+#  'Statistics' : {'P1' : [...], ...},
+#  'Biweekly Worst' : {'P1' : [...], ...},
+#  'Emerging Product' : [...]
+# }
 def sale_analysis():
     filename = "Sales_Transactions_Dataset_Weekly.csv"
+    weeks = np.arange(1,53,1).tolist()
+    biweekly = np.arange(1,53,2).tolist()
+    df_bweek = pd.DataFrame(columns=["BW"+str(b) for b in biweekly])
     results = {}
+    total_sales_by_prod = {}
+    outliers = {}
+    prod_stats = {}
+    total_biweekly_sales = {}
+    emerging_prod = []
+    
     with open(filename, "r") as input_f:
         reader = csv.reader(input_f, delimiter=",")
+        # Read first line as header
         header = next(reader)
-        biweekly = np.arange(1,53,2)
-        biweekly = biweekly.tolist()
-        total_sales_by_prod = {}
-        outliers = {}
-        total_biweekly_sales = []
         for r in reader:
-            int_r = []
-            outlier_idx = []
-            [int_r.append(int(r[i])) for i in range(1,54)]
-            qtr25, qtr75 = np.percentile(int_r, [25,75])
-            for i in range(1,53):
-                if is_outlier(int(r[i]), qtr25, qtr75):
-                    outlier_idx.append(header[i])
+            r_int = [int(r[i]) for i in range(1,53)]
+            nr_fl = [float(r[i]) for i in range(55, len(r))]
+            # Measure emerging trend of product based on positiveness of slope of linear regression
+            if is_emerging(weeks, r_int):
+                emerging_prod.append(r[0])
+            # Calculates min,max,median,mean for each product
+            prod_stats[r[0]] = find_stats(r_int)
+            # Find outlier weekly sales for each product
+            qtr25, qtr75 = np.percentile(r_int, [25,75])
+            outlier_idx = [header[i] for i in range(1,53) if is_outlier(r_int[i-1], qtr25, qtr75)]
             outliers[r[0]] = outlier_idx
-            biweekly_sales = [r[0]]
-            for b in biweekly:
-                biweekly_sales.append(audit_sum(r[b:b+2]))
-            total_biweekly_sales.append(biweekly_sales)
-            total_sales_by_prod[r[0]] = audit_sum(r[1:53])
-        results["Best Performing"] = max(total_sales_by_prod, key=total_sales_by_prod.get)   
-        results["Outliers"] = outliers          
-        df = pd.DataFrame(total_biweekly_sales)
-        print(total_sales_by_prod["P409"])
-        # print(min(df[20]))
-
-
+            # Sum biweekly sales over 52w period for each product
+            df_bweek.loc[r[0],:] = [audit_sum(r[b:b+2]) for b in biweekly]
+            # Sum sales volume over 52w period for each product
+            total_sales_by_prod[r[0]] = sum(r_int)
+    # Find biweekly worst performing products
+    # The minimum for each biweekly sales is zero. On avg, there is ~150 products with zero biweekly sales.
+    for d in df_bweek:
+        bw_min = df_bweek.loc[:,d].min(axis=0)
+        bw_min_p = df_bweek.loc[:,d] == bw_min
+        total_biweekly_sales[d] = df_bweek[bw_min_p].index.tolist()
+    # Sort for the product with best sales volume
+    best_prod = max(total_sales_by_prod, key=total_sales_by_prod.get)
+    # Store results into result dictionary
+    results["Best Performing"] = (best_prod, total_sales_by_prod[best_prod])
+    results["Outliers"] = outliers  
+    results["Statistics"] = prod_stats
+    results["Biweekly Worst"] = total_biweekly_sales  
+    results["Emerging Product"] = emerging_prod
+    return (results)
 
 def sum_exc(input):
     val = []
@@ -211,18 +304,14 @@ def sum_exc(input):
     return val
 
 def get_kaggle_dataset(key, link):
-    # You need to input your kaggle accounts for authentication
+    # You need to input your kaggle accounts credentials for authentication
     login_url = "https://www.kaggle.com/account/login?isModal=true"
-    payload =  {"username" : "fchief", "password" : "earth169", "__RequestVerificationToken" : ""}
+    payload =  {"username" : "_____", "password" : "_______", "__RequestVerificationToken" : ""}
     r = requests.session()
     result = r.get(login_url)
     payload["__RequestVerificationToken"] = r.cookies.get_dict()["__RequestVerificationToken"]
     result = r.post(login_url, data=payload, headers = dict(referer=login_url) )
-    # print(result.content)
-    result = r.get(
-	link, 
-	headers = dict(referer = link)
-    )
+    result = r.get(link,headers = dict(referer = link))
 
     with open(key, 'wb') as output_f:
         for byte in result.iter_content(chunk_size=524288):
@@ -230,8 +319,6 @@ def get_kaggle_dataset(key, link):
                 output_f.write(byte)
 
     return r
-
-
 
 if __name__ == '__main__':
     # This part checks if dataset exists, otherwise download from Kaggle. Tested under Ubuntu 16.04 OS
@@ -243,5 +330,11 @@ if __name__ == '__main__':
     input = [1,2,3,4] # You may change the list entries here. No numeric checking
     val = sum_exc(input)
     print("Q1 - Input list: {0} Index exclusion sum: {1}".format(input, val))
+
+    # Question 2
     sale_analysis()
+
+    # Question 3
     jobpost_eda()
+
+    # Question 4
