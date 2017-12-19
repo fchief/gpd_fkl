@@ -11,10 +11,11 @@ from nltk.tokenize import word_tokenize
 from nltk import PorterStemmer, pos_tag
 from pattern.en import singularize
 from scipy import stats
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 
 # ------------------------------------------------------------------------------------------
-# Download stopwords list if not available
+# Download files if not available
 # import nltk
 # nltk.download("stopwords")
 # nltk.download("punkt")
@@ -34,7 +35,13 @@ clean_fields = ["TITLE:",  "DURATION:", "LOCATION:",
 # To parallelize this function one can split dataframe into partitions and call this function
 # concurrently. The python library commonly used is multiprocess. 
 def text_sim(df):
-    pass
+    input=[df["description_x"], df["description_y"]]
+    # Cosine similarity is used here. Alternatively, we could use Jaccard or 
+    # Jaro Winkler which calculates the percentage of matched characters.
+    tfidf = TfidfVectorizer(min_df=1)
+    fit = tfidf.fit_transform(input)
+    sim = (fit * fit.T).A
+    return (sim[0][1])
 
 # ------------------------------------------------------------------------------------------
 # This function takes string input and remove stop words and singularize the words.
@@ -187,12 +194,10 @@ def jobpost_eda():
     # print(result[:6])
 
 # ------------------------------------------------------------------------------------------
-# This is a very simple model for fitting a binary classification model using the sign of 
+# This is a simple model for fitting a binary classification model using the sign of 
 # the slope. Additional rules can be added to further enhance this model such as if average
 # sales volume is below certain number because emerging also means relatively unknown. Also,
-# due to time contraint I assumed that the dataset fits the linear regression model. One 
-# model that is interesting to test is trending tweets prediction model developed by Nikolov
-# https://snikolov.wordpress.com/2012/11/14/early-detection-of-twitter-trends/
+# due to time contraint I assumed that the dataset fits the linear regression model. 
 def is_emerging(x, y):
     slope, intercept, r_value, p_value, std_err = stats.linregress(x,y)
     if slope > 0:
@@ -332,9 +337,26 @@ if __name__ == '__main__':
     print("Q1 - Input list: {0} Index exclusion sum: {1}".format(input, val))
 
     # Question 2
-    sale_analysis()
+    print("Q2 - Running. This may take a while ..")
+    results = sale_analysis()
+    print("Best performing: ")
+    print(results["Best Performing"])
+    print("Outliers for product P10: ")
+    print(results["Outliers"]["P10"])
+    print("Statistics for product P10: ")
+    print(results["Statistics"]["P10"])
+    print("Biweekly worst for BW2: ")
+    print(results["Biweekly Worst"]["BW1"])
+    print("Emerging products: ")
+    print(results["Emerging Product"])
 
     # Question 3
-    jobpost_eda()
+    print("\nQ3 - Running. This may take a while ..\n")
+    # jobpost_eda()
 
     # Question 4
+    q4file = "test.csv"
+    df = pd.read_csv(q4file)
+    df["same_security"] = df.loc[:,["description_x", "description_y"]].apply(text_sim, axis=1)
+    print("Q4 - First 6 rows\n")
+    print(df.iloc[:6,1:])
