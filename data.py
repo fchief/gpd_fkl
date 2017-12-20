@@ -3,6 +3,7 @@ import re
 import csv
 import numpy as np
 import pandas as pd
+import pickle
 import requests
 import zipfile
 from string import punctuation
@@ -73,13 +74,12 @@ def jobpost_month(df):
 def jobpost_company(df):
     year2013 = df["Year"] >= 2013
     jobs_year2013 = df[year2013]["Company"].value_counts().index.tolist()
-    print("Company {0} has most job post ads from year 2013-2015.".format(jobs_year2013[0]))
     return(jobs_year2013[0])
 
 # ------------------------------------------------------------------------------------------
 # This function takes a string input containing job post details and search for job post 
 # details shown in clean_fields list. List containing the results is returned.
-def jobpost_scraper(jobpost_str):
+def extractor(jobpost_str):
     # Since the string has a clear structure with upper case letter followed by : for all of
     # important headers. We can use a simple regex
     regex = r"[A-Z / A-Z]{4,}\:"
@@ -131,68 +131,36 @@ def jobpost_scraper(jobpost_str):
         
 # This function is a caller function to invoke jobpost related eda functions
 # It will take a while to run this function due to heavy text analysis
-def jobpost_eda():
+def jobpost_scraper():
     zf = zipfile.ZipFile("data_job_posts.zip")
     df = pd.read_csv(zf.open("data job posts.csv"))
 
-    jobpost_company(df)
-    jobpost_month(df)
-    str_swr_sgl(df["JobRequirment"][0])
-    n = len(df["jobpost"])
+    # This part finds the company with most number of job posts from 2013-2015
+    result = jobpost_company(df)
+    pickle.dump(result, open( "topcompany.dat", "wb" ) )
+    print("Company with most job post from year 2013-2015")
+    print(result)
+    print("\n")
 
-    # ----
+    #  This part summarizes the data into totaly monthly job posts from 2004-20015
+    result = jobpost_month(df)
+    pickle.dump(result, open( "monthlyjobpost.dat", "wb" ) )
+    print("Summary of total monthly job posts from year 2004-2015")
+    print(result)
+    print("\n")
+
+    #  This part scrapes the job post columns to find job post details
+    n = len(df["jobpost"])
     result = pd.DataFrame(columns = clean_fields)
     for i in range(0,n):
         temp = df["jobpost"][i]
-        res = jobpost_scraper(temp)
+        res = extractor(temp)
         res[4] = str_swr_sgl(res[4])
         result.loc[i] = res
-    print("Total {0} job posts scraped.".format(n))
-    print(result[:6])
-    # ----
-
-    #     job_post = []
-    #     matches = re.finditer(regex, temp)
-    #     match_items = []
-    #     match_headers = []
-    #     for match in matches:
-    #         h = temp[match.start():match.end()].strip()
-    #         for f in fields:
-    #             if f in h:
-    #                 if f == "SALARY:":
-    #                     h = "SALARY:"
-    #                 if f == "TERM:":
-    #                     h = "DURATION:"
-    #                 else:
-    #                     h = f
-    #         match_headers.append(h)
-    #         match_items.append((match.start(), match.end()))
-    #     nn = len(clean_fields)
-    #     mm = len(match_headers)
-    #     df_ls = []
-    #     for cf in clean_fields:
-    #         if cf in match_headers:
-    #             ii = match_headers.index(cf)
-    #             # print(match_headers[ii] + "----------------------------")
-    #             if ii < mm - 1:
-    #                 idx_s = match_items[ii][1]
-    #                 idx_e = match_items[ii+1][0]
-    #                 res = temp[idx_s:idx_e].strip()
-    #             else:
-    #                 idx_s = match_items[ii][1]
-    #                 res = temp[idx_s:].strip()
-    #             idx_ = res.find("--")
-    #             if idx_ != -1:
-    #                 res = res[0:idx_].strip()
-    #             res = res.replace("\r\n", "")
-    #             # result.at[i, match_headers[ii]] = res
-    #             df_ls.append(res)
-    #         else:
-    #             # result.at[i, cf] = "NULL"
-    #             df_ls.append("NULL")
-    #     result.loc[i] = df_ls
-    # print("Total {0} job posts scraped.".format(n))
-    # print(result[:6])
+    print("Total {0} job posts scraped. Showing first 6 results.".format(n))
+    print(result.iloc[:6,:])
+    pickle.dump(result, open( "jobpostdetail.dat", "wb" ) )
+    return(result)
 
 # ------------------------------------------------------------------------------------------
 # This is a simple model for fitting a binary classification model using the sign of 
@@ -336,7 +304,7 @@ if __name__ == '__main__':
     input = [1,2,3,4] # You may change the list entries here. No numeric checking
     val = sum_exc(input)
     print("------------------------- Q1 - Reverse sum")
-    print("Index exclusion sum of {0}: {1}".format(input, val))
+    print("Reversed index exclusion sum of {0}: {1}".format(input, val))
 
     # Question 2
     print("\n------------------------- Q2 - Running. This may take a while ...")
@@ -354,12 +322,14 @@ if __name__ == '__main__':
 
     # Question 3
     print("\n-------------------------Q3 - Running. This may take a while ..\n")
-    jobpost_eda()
+    jobpost_scraper()
+
 
     # Question 4
     q4file = "test.csv"
     df = pd.read_csv(q4file)
     df["same_security"] = df.loc[:,["description_x", "description_y"]].apply(text_sim, axis=1)
+
     print("------------------------- Q4 - First 6 rows")
-    print(" Similarity scores range between 0 to 1 with 1 means exactly identical\n")
+    print(" Similarity scores range between 0 to 1 with 1 indicating exactly identical\n")
     print(df.iloc[:6,1:])
